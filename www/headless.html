@@ -1,0 +1,48 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>monitor</title></head><body>
+<script src="engine.js"></script><script src="demo.js"></script><script src="core.js"></script>
+<script>
+/* صفحه نامرئی که داخل سرویس اندروید اجرا می‌شود؛ شبکه و ذخیره‌سازی را از جاوا می‌گیرد */
+(function () {
+  const A = window.Android;
+  const pending = {}; let nid = 1;
+  window.__httpDone = function (id, status, b64, err) {
+    const p = pending[id]; if (!p) return; delete pending[id]; clearTimeout(p.t);
+    if (err) return p.rej(new Error(err));
+    if (status >= 400) return p.rej(new Error('HTTP ' + status));
+    try {
+      const bin = atob(b64 || ''); const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      p.res(new TextDecoder('utf-8').decode(bytes));
+    } catch (e) { p.rej(e); }
+  };
+  function http(url, timeout) {
+    timeout = timeout || 15000;
+    return new Promise((res, rej) => {
+      const id = nid++;
+      const t = setTimeout(() => { if (pending[id]) { delete pending[id]; rej(new Error('Timeout')); } }, timeout + 4000);
+      pending[id] = { res, rej, t };
+      A.httpGet(id, url, timeout);
+    });
+  }
+  const store = {
+    get(k, d) { try { const v = A.prefGet('c_' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+    set(k, v) { try { A.prefSet('c_' + k, JSON.stringify(v)); } catch (e) {} },
+  };
+  function getSettings() {
+    const def = { interval: 1, weights: {}, sources: {} };
+    try { const s = A.prefGet('settings'); return Object.assign(def, s ? JSON.parse(s) : {}); } catch (e) { return def; }
+  }
+  window.__core = Core.create({
+    http, store, getSettings, demoScenario: null,
+    emit: st => A.onState(JSON.stringify(st)),
+    alarm: (level, info) => {
+      const FA = { Tehran:'تهران', Isfahan:'اصفهان', Tabriz:'تبریز', Shiraz:'شیراز', Mashhad:'مشهد', Bushehr:'بوشهر', Natanz:'نطنز', Fordow:'فردو', Parchin:'پارچین', BandarAbbas:'بندرعباس', Kermanshah:'کرمانشاه', Ahvaz:'اهواز', Karaj:'کرج', Qom:'قم', Arak:'اراک', Urmia:'ارومیه', Zahedan:'زاهدان', Hamedan:'همدان', Kharg:'خارک', Chabahar:'چابهار', Semnan:'سمنان', Iran:'ایران' };
+      info.cities = (info.cities || []).map(c => FA[c] || c);
+      A.alarm(level, JSON.stringify(info));
+    },
+  });
+  window.tick = () => window.__core.tick();
+  A.log('headless ready');
+  setTimeout(() => window.__core.tick(), 800);
+})();
+</script></body></html>
